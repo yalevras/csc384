@@ -7,10 +7,11 @@
 
 import os  # for time functions
 import math  # for infinity
+import time
 from search import *  # for search engines
 from sokoban import sokoban_goal_state, SokobanState, Direction, PROBLEMS  # for Sokoban specific classes and problems
 
-PROBLEMS[20].print_state()
+#PROBLEMS[5].print_state()
 
 # SOKOBAN HEURISTICS
 def heur_alternate(state):
@@ -38,9 +39,8 @@ def heur_alternate(state):
                     selected_storage[box] = storage
         min_distance = math.inf
     
-    for box, storage in selected_storage[box].items():
+    for box, storage in selected_storage.items():
         obstacles_in_path = 0
-        
 
         x_min, x_max = min(box[0], storage[0]), max(box[0], storage[0])
         y_min, y_max = min(box[1], storage[1]), max(box[1], storage[1])
@@ -54,7 +54,7 @@ def heur_alternate(state):
 
     return total_obstacles
 
-print(heur_alternate(PROBLEMS[20]))
+#print(heur_alternate(PROBLEMS[5]))
 
 def heur_zero(state):
     '''Zero Heuristic can be used to make A* search perform uniform cost search'''
@@ -97,7 +97,9 @@ def fval_function(sN, weight):
     @param float weight: Weight given by Anytime Weighted A star
     @rtype: float
     """
-    return 0 #CHANGE THIS
+
+    # f(n) = g(n) + w * h(n)
+    return sN.gval + weight * sN.hval
 
 # SEARCH ALGORITHMS
 def weighted_astar(initial_state, heur_fn, weight, timebound):
@@ -107,27 +109,10 @@ def weighted_astar(initial_state, heur_fn, weight, timebound):
     '''OUTPUT: A goal state (if a goal is found), else False as well as a SearchStats object'''
     '''implementation of weighted astar algorithm'''
 
-    open_list = [initial_state]
-    closed_list = set()
-
-    start_node = sNode(initial_state, 0, heur_fn(initial_state))
-    heapq.heappush(open_list, start_node)
-
-    while open_list:
-        current_node = heapq.heappop(open_list)
-        current_state = current_node.state
-
-        if current_state.is_goal():
-            return current_state, SearchStats(time.time() - start_time, len(closed_list), len(open_list))
-
-        closed_list.add(current_state)
-
-        for neighbor in current_state.successors():
-            if neighbor not in closed_list:
-                neighbor_node = sNode(neighbor, current_node.gval + 1, heur_fn(neighbor))
-                heapq.heappush(open_list, neighbor_node)
-
-    return None, None  # CHANGE THIS
+    se = SearchEngine('custom', 'full')
+    wrapped_fval_function = (lambda sN: fval_function(sN, weight))
+    se.init_search(initial_state, sokoban_goal_state, heur_fn, wrapped_fval_function)
+    return se.search(timebound)
 
 def iterative_astar(initial_state, heur_fn, weight=1, timebound=5):  # uses f(n), see how autograder initializes a search line 88
     # IMPLEMENT
@@ -135,7 +120,34 @@ def iterative_astar(initial_state, heur_fn, weight=1, timebound=5):  # uses f(n)
     '''INPUT: a sokoban state that represents the start state and a timebound (number of seconds)'''
     '''OUTPUT: A goal state (if a goal is found), else False as well as a SearchStats object'''
     '''implementation of iterative astar algorithm'''
-    return None, None #CHANGE THIS
+
+    best_solution = None
+    best_cost = float('inf')  # Track cost of best solution found
+    start_time = os.times()[0]
+
+    while os.times()[0] - start_time < timebound:
+        remaining_time = timebound - (os.times()[0] - start_time)
+        if remaining_time <= 0:
+            break  # Stop if no time remains
+
+        # Run weighted A* search
+        success, stats = weighted_astar(initial_state, heur_fn, weight, remaining_time)
+
+        if success:
+            cost = stats.gval  # Assume `stats` has a `gval` field for the solution cost
+            if cost < best_cost:
+                best_solution = success  # Store the solution (assuming success represents the solution)
+                best_cost = cost  # Update best cost for pruning
+
+        # Reduce weight for the next iteration (move toward optimal A*)
+        weight = max(1, weight * 0.5)  # Avoid going below 1 (standard A*)
+
+        if weight == 1:  # Standard A* reached, stop refining
+            break
+
+    return best_solution
+
+iterative_astar(PROBLEMS[5], heur_alternate, 1, 5)
 
 def iterative_gbfs(initial_state, heur_fn, timebound=5):  # only use h(n)
     # IMPLEMENT
@@ -143,7 +155,29 @@ def iterative_gbfs(initial_state, heur_fn, timebound=5):  # only use h(n)
     '''INPUT: a sokoban state that represents the start state and a timebound (number of seconds)'''
     '''OUTPUT: A goal state (if a goal is found), else False'''
     '''implementation of iterative gbfs algorithm'''
-    return None, None #CHANGE THIS
 
+    best_solution = None
+    best_cost = float('inf')  # Best path cost found
+    start_time = os.times()[0]
+
+    while os.times()[0] - start_time < timebound:
+        # Run GBFS with a pruning condition
+        remaining_time = timebound - (os.times()[0] - start_time)
+        if remaining_time < 0:
+            break
+        
+        se = SearchEngine('best_first', 'default')
+        se.init_search(initial_state, sokoban_goal_state, heur_fn)
+        solution, stats = se.search(remaining_time, costbound=None)
+
+        if solution:
+            cost = stats.gval
+            if cost < best_cost:
+                best_solution = solution
+                best_cost = cost
+
+    return best_solution, stats
+
+iterative_gbfs(PROBLEMS[5], heur_alternate, 5)
 
 
