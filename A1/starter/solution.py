@@ -14,7 +14,8 @@ from sokoban import sokoban_goal_state, SokobanState, Direction, PROBLEMS  # for
 #PROBLEMS[5].print_state()
 
 # SOKOBAN HEURISTICS
-def heur_alternate(state):
+"""
+def heur_alternate(state): #obstacles
     # IMPLEMENT
     '''a better heuristic'''
     '''INPUT: a sokoban state'''
@@ -53,8 +54,142 @@ def heur_alternate(state):
         total_obstacles += obstacles_in_path
 
     return total_obstacles
+"""
+"""
+def heur_alternate(state): #greedy pairing
+    '''Improved heuristic using greedy pairing of boxes to storage and obstacle penalties.'''
+    
+    # List of unpaired boxes and storage locations
+    unpaired_boxes = list(state.boxes)
+    unpaired_storage = list(state.storage)
+    
+    # Pairing dictionary: box -> assigned storage
+    box_storage_pairs = {}
 
-#print(heur_alternate(PROBLEMS[5]))
+    # Greedy pairing: assign each box to the closest available storage
+    while unpaired_boxes and unpaired_storage:
+        best_pair = None
+        min_distance = math.inf
+
+        for box in unpaired_boxes:
+            for storage in unpaired_storage:
+                distance = abs(box[0] - storage[0]) + abs(box[1] - storage[1])
+                if distance < min_distance:
+                    min_distance = distance
+                    best_pair = (box, storage)
+
+        if best_pair:
+            box, storage = best_pair
+            box_storage_pairs[box] = storage
+            unpaired_boxes.remove(box)
+            unpaired_storage.remove(storage)
+
+    # Compute total cost based on Manhattan distance + obstacles in path
+    total_cost = 0
+
+    for box, storage in box_storage_pairs.items():
+        distance = abs(box[0] - storage[0]) + abs(box[1] - storage[1])
+        obstacles_in_path = 0
+
+        x_min, x_max = min(box[0], storage[0]), max(box[0], storage[0])
+        y_min, y_max = min(box[1], storage[1]), max(box[1], storage[1])
+
+        # Count obstacles along the Manhattan path
+        for x in range(x_min, x_max + 1):
+            for y in range(y_min, y_max + 1):
+                if (x, y) in state.obstacles:
+                    obstacles_in_path += 1
+
+        # Combine distance with obstacle penalty
+        total_cost += distance + 2 * obstacles_in_path  # Penalize obstacles more heavily
+
+    return total_cost
+"""
+
+import math
+
+def is_deadlocked(box, state):
+    """Check if a box is completely stuck (against walls or obstacles)."""
+    x, y = box
+    walls = state.obstacles.union(state.boxes)  # Walls and other boxes act as obstacles
+
+    if box in state.storage:
+        return False  # Already in storage, not stuck
+
+    # Corner deadlock (box against two walls)
+    if ((x - 1, y) in walls and (x, y - 1) in walls) or \
+       ((x - 1, y) in walls and (x, y + 1) in walls) or \
+       ((x + 1, y) in walls and (x, y - 1) in walls) or \
+       ((x + 1, y) in walls and (x, y + 1) in walls):
+        return True
+
+    # Wall deadlock (box trapped between two walls)
+    if (x - 1, y) in walls and (x + 1, y) in walls:
+        return True
+    if (x, y - 1) in walls and (x, y + 1) in walls:
+        return True
+
+    return False
+
+def heur_alternate(state):
+    """Improved heuristic combining greedy pairing, Manhattan distance, obstacles, and deadlock detection."""
+    
+    # Check if any box is deadlocked
+    for box in state.boxes:
+        if is_deadlocked(box, state):
+            return math.inf  # Deadlocked state → impossible to solve
+
+    # List of unpaired boxes and storage locations
+    unpaired_boxes = list(state.boxes)
+    unpaired_storage = list(state.storage)
+    
+    # Pairing dictionary: box -> assigned storage
+    box_storage_pairs = {}
+
+    # Greedy pairing: assign each box to the closest available storage
+    while unpaired_boxes and unpaired_storage:
+        best_pair = None
+        min_distance = math.inf
+
+        for box in unpaired_boxes:
+            for storage in unpaired_storage:
+                distance = abs(box[0] - storage[0]) + abs(box[1] - storage[1])
+                if distance < min_distance:
+                    min_distance = distance
+                    best_pair = (box, storage)
+
+        if best_pair:
+            box, storage = best_pair
+            box_storage_pairs[box] = storage
+            unpaired_boxes.remove(box)
+            unpaired_storage.remove(storage)
+
+    # Compute total cost based on Manhattan distance + obstacles in path
+    total_cost = 0
+
+    for box, storage in box_storage_pairs.items():
+        distance = abs(box[0] - storage[0]) + abs(box[1] - storage[1])
+        obstacles_in_path = 0
+
+        x_min, x_max = min(box[0], storage[0]), max(box[0], storage[0])
+        y_min, y_max = min(box[1], storage[1]), max(box[1], storage[1])
+
+        # Count obstacles along the Manhattan path
+        for x in range(x_min, x_max + 1):
+            for y in range(y_min, y_max + 1):
+                if (x, y) in state.obstacles:
+                    obstacles_in_path += 1
+
+        # Combine distance with obstacle penalty
+        total_cost += distance + 2 * obstacles_in_path  # Penalize obstacles more heavily
+
+    return total_cost
+
+
+
+
+
+print(heur_alternate(PROBLEMS[15]))
 
 def heur_zero(state):
     '''Zero Heuristic can be used to make A* search perform uniform cost search'''
@@ -120,8 +255,25 @@ def iterative_astar(initial_state, heur_fn, weight=1, timebound=5):  # uses f(n)
     '''INPUT: a sokoban state that represents the start state and a timebound (number of seconds)'''
     '''OUTPUT: A goal state (if a goal is found), else False as well as a SearchStats object'''
     '''implementation of iterative astar algorithm'''
+    start = os.times()[0]
+    ans, ansCost = None, float('inf')
+    while (timebound > os.times()[0] - start):
+        search_engine = SearchEngine(strategy = 'astar', cc_level = 'full')
+        wrapped_fval_function = (lambda sN: fval_function(sN, weight))
+        search_engine.init_search(initState = initial_state, goal_fn = sokoban_goal_state, heur_fn = heur_fn, fval_function = wrapped_fval_function)
+        endState, stats = search_engine.search(timebound=max(0, timebound - (os.times()[0] - start) - 0.02), costbound=(ansCost, ansCost, ansCost))
 
-    best_solution = None
+        weight/=4
+        if endState and endState.gval < ansCost:
+                ans = (endState, stats)
+                ansCost = endState.gval
+    return ans
+
+#iterative_astar(PROBLEMS[2], heur_alternate, 1, 5)
+
+
+"""
+best_solution = None
     best_cost = float('inf')  # Track cost of best solution found
     start_time = os.times()[0]
 
@@ -146,8 +298,9 @@ def iterative_astar(initial_state, heur_fn, weight=1, timebound=5):  # uses f(n)
             break
 
     return best_solution
-
-iterative_astar(PROBLEMS[5], heur_alternate, 1, 5)
+"""
+    
+#iterative_astar(PROBLEMS[5], heur_manhattan_distance, 1, 5)
 
 def iterative_gbfs(initial_state, heur_fn, timebound=5):  # only use h(n)
     # IMPLEMENT
@@ -156,6 +309,25 @@ def iterative_gbfs(initial_state, heur_fn, timebound=5):  # only use h(n)
     '''OUTPUT: A goal state (if a goal is found), else False'''
     '''implementation of iterative gbfs algorithm'''
 
+    """
+    start = os.times()[0]
+    ans, ansCost = None, float('inf')
+
+    while (timebound > os.times()[0] - start):
+        search_engine = SearchEngine(strategy = 'best_first', cc_level = 'full')
+        search_engine.init_search(initState = initial_state, goal_fn = sokoban_goal_state, heur_fn = heur_fn)
+        endState, stats = search_engine.search(timebound=max(0, timebound - (os.times()[0] - start) - 0.02), costbound=(ansCost, ansCost, ansCost))
+
+        if endState and endState.gval < ansCost:
+                ans = (endState, stats)
+                ansCost = endState.gval
+    
+    return ans
+    """
+    
+    
+    
+    """
     best_solution = None
     best_cost = float('inf')  # Best path cost found
     start_time = os.times()[0]
@@ -177,7 +349,9 @@ def iterative_gbfs(initial_state, heur_fn, timebound=5):  # only use h(n)
                 best_cost = cost
 
     return best_solution, stats
+    """
 
-iterative_gbfs(PROBLEMS[5], heur_alternate, 5)
+#for i in range(6):
+ #   iterative_gbfs(PROBLEMS[i], heur_manhattan_distance, 5)
 
 
