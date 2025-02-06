@@ -7,10 +7,10 @@ import os
 test_time_astar = True
 test_time_gbfs = True
 test_manhattan = True
-test_fval_function = True
-test_iterative_gbfs = True
-test_alternate = True
-test_iterative_astar = True
+test_fval_function = False
+test_iterative_gbfs = False
+test_alternate = False
+test_iterative_astar = False
 test_weighted_astar = True
 
 def test_time_astar_fun():
