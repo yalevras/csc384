@@ -133,35 +133,22 @@ def is_deadlocked(box, state):
 def is_deadlocked(box, state):
     """Check if a box is in a deadlock position."""
     x, y = box
-    walls = state.obstacles  # Treat boxes as temporary walls
+    walls = state.obstacles
 
     if box in state.storage:
         return False  # If already in storage, it's fine
 
-    # 1. **Corner Deadlock**: Box is stuck in a corner against two walls
+    # Corner deadlock: box is stuck in a corner
     if ((x - 1, y) in walls and (x, y - 1) in walls) or \
        ((x - 1, y) in walls and (x, y + 1) in walls) or \
        ((x + 1, y) in walls and (x, y - 1) in walls) or \
        ((x + 1, y) in walls and (x, y + 1) in walls):
         return True
 
-    # 2. **Wall Deadlock**: Box is stuck between two walls, check if storage is accessible
+    # Wall deadlock: box is stuck between two walls
     if ((x - 1, y) in walls and (x + 1, y) in walls) or \
        ((x, y - 1) in walls and (x, y + 1) in walls):
-
-        # Count the number of storage spots in this row/column
-        row_storages = [s for s in state.storage if s[1] == y]
-        col_storages = [s for s in state.storage if s[0] == x]
-
-        if ((x - 1, y) in walls and (x + 1, y) in walls and box not in row_storages) or \
-           ((x, y - 1) in walls and (x, y + 1) in walls and box not in col_storages):
-            return True  # No valid storage → deadlock
-
-    # 3. **Corridor Deadlock**: Check if multiple boxes are stuck in a region with fewer storage spots
-    enclosed_boxes, enclosed_storages = find_enclosed_boxes_and_storage(box, state)
-
-    if len(enclosed_boxes) > len(enclosed_storages):  
-        return True  # More boxes than storage → deadlock
+        return True
 
     return False
 
@@ -212,61 +199,29 @@ def find_enclosed_boxes_and_storage(start_box, state):
 
 
 def heur_alternate(state):
-    """Improved heuristic combining greedy pairing, Manhattan distance, obstacles, and deadlock detection."""
-    
-    # Check if any box is deadlocked
-    for box in state.boxes:
-        if is_deadlocked(box, state):
-            return math.inf  # Deadlocked state → impossible to solve
+    """Improved heuristic using greedy assignment and Manhattan distance."""
+    boxes = list(state.boxes)
+    storage = list(state.storage)
+    total_distance = 0
 
-    # List of unpaired boxes and storage locations
-    unpaired_boxes = list(state.boxes)
-    unpaired_storage = list(state.storage)
-    
-    # Pairing dictionary: box -> assigned storage
-    box_storage_pairs = {}
-
-    # Greedy pairing: assign each box to the closest available storage
-    while unpaired_boxes and unpaired_storage:
-        best_pair = None
+    # Greedy assignment: assign each box to the closest available storage
+    while boxes and storage:
         min_distance = math.inf
+        best_box, best_storage = None, None
 
-        for box in unpaired_boxes:
-            for storage in unpaired_storage:
-                distance = abs(box[0] - storage[0]) + abs(box[1] - storage[1])
+        for box in boxes:
+            for st in storage:
+                distance = abs(box[0] - st[0]) + abs(box[1] - st[1])
                 if distance < min_distance:
                     min_distance = distance
-                    best_pair = (box, storage)
+                    best_box, best_storage = box, st
 
-        if best_pair:
-            box, storage = best_pair
-            box_storage_pairs[box] = storage
-            unpaired_boxes.remove(box)
-            unpaired_storage.remove(storage)
+        if best_box and best_storage:
+            total_distance += min_distance
+            boxes.remove(best_box)
+            storage.remove(best_storage)
 
-    # Compute total cost based on Manhattan distance + obstacles in path
-    total_cost = 0
-
-    for box, storage in box_storage_pairs.items():
-        distance = abs(box[0] - storage[0]) + abs(box[1] - storage[1])
-        obstacles_in_path = 0
-
-        x_min, x_max = min(box[0], storage[0]), max(box[0], storage[0])
-        y_min, y_max = min(box[1], storage[1]), max(box[1], storage[1])
-
-        # Count obstacles along the Manhattan path
-        for x in range(x_min, x_max + 1):
-            for y in range(y_min, y_max + 1):
-                if (x, y) in state.obstacles:
-                    obstacles_in_path += 1
-
-        # Combine distance with obstacle penalty
-        #total_cost += obstacles_in_path #7/25
-
-        total_cost += distance + 2 * obstacles_in_path #16/25
-
-    return total_cost
-
+    return total_distance
 
 
 
@@ -329,27 +284,22 @@ def weighted_astar(initial_state, heur_fn, weight, timebound):
     se = SearchEngine('custom')
     wrapped_fval_function = (lambda sN: fval_function(sN, weight))
     se.init_search(initial_state, sokoban_goal_state, heur_fn, wrapped_fval_function)
-    state, stats = se.search(timebound)
-    return state, stats
+    return se.search(timebound)
 
-def iterative_astar(initial_state, heur_fn, weight=1, timebound=5):  # uses f(n), see how autograder initializes a search line 88
-    # IMPLEMENT
-    '''Provides an implementation of realtime a-star, as described in the HW1 handout'''
-    '''INPUT: a sokoban state that represents the start state and a timebound (number of seconds)'''
-    '''OUTPUT: A goal state (if a goal is found), else False as well as a SearchStats object'''
-    '''implementation of iterative astar algorithm'''
+def iterative_astar(initial_state, heur_fn, weight=10, timebound=5):
     start = os.times()[0]
     ans, ansCost = None, float('inf')
-    while (timebound > os.times()[0] - start):
-        search_engine = SearchEngine(strategy = 'astar', cc_level = 'full')
+    while timebound > os.times()[0] - start:
+        search_engine = SearchEngine(strategy='astar', cc_level='full')
         wrapped_fval_function = (lambda sN: fval_function(sN, weight))
-        search_engine.init_search(initState = initial_state, goal_fn = sokoban_goal_state, heur_fn = heur_fn, fval_function = wrapped_fval_function)
-        endState, stats = search_engine.search(timebound=max(0, timebound - (os.times()[0] - start) - 0.02), costbound=(ansCost, ansCost, ansCost))
+        search_engine.init_search(initState=initial_state, goal_fn=sokoban_goal_state, heur_fn=heur_fn, fval_function=wrapped_fval_function)
+        endState, stats = search_engine.search(timebound=max(0, timebound - (os.times()[0] - start) - 0.02), costbound=(ansCost, math.inf, math.inf))
 
-        weight/=4
         if endState and endState.gval < ansCost:
-                ans = (endState, stats)
-                ansCost = endState.gval
+            ans = (endState, stats)
+            ansCost = endState.gval
+
+        weight *= 0.8  # Reduce weight gradually
     return ans
 
 #iterative_astar(PROBLEMS[2], heur_alternate, 1, 5)
